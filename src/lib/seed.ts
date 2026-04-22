@@ -241,7 +241,7 @@ const SAMPLE_ARTICLES: Array<{
 
 // ─── 시드 실행 함수 ────────────────────────────────────────────────────────────
 
-export async function seedSources(db: Client) {
+export async function seedReferenceData(db: Client) {
   // 1. 출처
   for (const s of SOURCES) {
     await db.execute({
@@ -288,7 +288,9 @@ export async function seedSources(db: Client) {
       args: [k.keyword, k.reason, k.is_override],
     });
   }
+}
 
+export async function seedSampleArticles(db: Client) {
   // 5. 기사
   for (const art of SAMPLE_ARTICLES) {
     const published_at = daysAgo(art.days);
@@ -320,4 +322,10 @@ export async function seedSources(db: Client) {
       ],
     });
   }
+}
+
+// @deprecated — 샘플 기사까지 시딩합니다. 참조 데이터만 필요하면 seedReferenceData()를 쓰세요.
+export async function seedSources(db: Client) {
+  await seedReferenceData(db);
+  await seedSampleArticles(db);
 }

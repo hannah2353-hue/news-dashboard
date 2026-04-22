@@ -133,9 +133,11 @@ async function initSchema(db: Client) {
 }
 
 async function seedIfEmpty(db: Client) {
-  const res = await db.execute("SELECT COUNT(*) as n FROM articles");
+  // sources 테이블이 비었을 때만 참조 데이터(출처/파트너/키워드)를 시딩합니다.
+  // 샘플 기사는 더 이상 자동 시딩하지 않습니다 — 실제 기사는 /api/cron/ingest로 수집합니다.
+  const res = await db.execute("SELECT COUNT(*) as n FROM sources");
   const n   = Number(res.rows[0]?.n ?? 0);
   if (n > 0) return;
-  const { seedSources } = await import("./seed");
-  await seedSources(db);
+  const { seedReferenceData } = await import("./seed");
+  await seedReferenceData(db);
 }
