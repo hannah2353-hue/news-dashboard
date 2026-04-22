@@ -60,6 +60,9 @@ const PARTNER_KEYWORDS: { partner: string; keyword: string; type: string }[] = [
   { partner: "뱅크몰",     keyword: "뱅크몰",        type: "official" },
   { partner: "모심",       keyword: "모심",           type: "official" },
   { partner: "서민금융진흥원 맞춤대출", keyword: "맞춤대출", type: "service" },
+  { partner: "OK저축은행",   keyword: "OK저축은행",     type: "official" },
+  { partner: "OK저축은행",   keyword: "오케이저축은행", type: "alias" },
+  { partner: "OK저축은행",   keyword: "OK Savings Bank", type: "english" },
 ];
 
 const SCORING_KEYWORDS = [
@@ -118,6 +121,9 @@ const EXCLUSION_KEYWORDS = [
   { keyword: "친환경", reason: "csr", is_override: 0 },
   { keyword: "금융교육", reason: "csr", is_override: 0 },
   { keyword: "플로깅", reason: "csr", is_override: 0 },
+  { keyword: "장학재단", reason: "csr", is_override: 0 },
+  { keyword: "장학금", reason: "csr", is_override: 0 },
+  { keyword: "장학생", reason: "csr", is_override: 0 },
   // D. 광고/마케팅
   { keyword: "광고모델", reason: "marketing", is_override: 0 },
   { keyword: "앰버서더", reason: "marketing", is_override: 0 },
