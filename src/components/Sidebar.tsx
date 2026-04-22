@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard, Newspaper, Users, Tags, Radio, Download, X,
+  LayoutDashboard, Newspaper, Users, Tags, Radio, Download, X, Settings,
 } from "lucide-react";
 
 const NAV = [
@@ -11,6 +11,7 @@ const NAV = [
   { href: "/partners",  label: "제휴사 관리",   icon: Users },
   { href: "/keywords",  label: "키워드 정책",   icon: Tags },
   { href: "/sources",   label: "수집 소스",     icon: Radio },
+  { href: "/admin",     label: "관리자 도구",   icon: Settings },
 ];
 
 interface Props { onClose?: () => void; }
