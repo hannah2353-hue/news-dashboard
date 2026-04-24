@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { kstDateString } from "@/lib/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,7 @@ async function scalar(db: Awaited<ReturnType<typeof getDb>>, sql: string, args: 
 
 export async function GET() {
   const db    = await getDb();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = kstDateString();
 
   const todayTotal    = await scalar(db, "SELECT COUNT(*) as n FROM articles WHERE DATE(published_at) = ? AND status != 'excluded'", [today]);
   const todayAlert    = await scalar(db, "SELECT COUNT(*) as n FROM articles WHERE DATE(published_at) = ? AND alert_level = 'alert' AND status != 'excluded'", [today]);
@@ -23,7 +24,7 @@ export async function GET() {
       COUNT(*) as count,
       SUM(CASE WHEN alert_level = 'alert' AND status != 'excluded' THEN 1 ELSE 0 END) as alert
     FROM articles
-    WHERE published_at >= date('now', '-13 days')
+    WHERE published_at >= date('now', '+9 hours', '-13 days')
       AND status != 'excluded'
     GROUP BY DATE(published_at)
     ORDER BY date ASC

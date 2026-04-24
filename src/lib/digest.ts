@@ -1,9 +1,10 @@
 import { getDb } from "./db";
 import { sendTelegramMessage } from "./telegram";
+import { kstDateString } from "./datetime";
 
 export async function sendDailyDigest() {
   const db    = await getDb();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = kstDateString();
 
   const res = await db.execute({
     sql: `SELECT * FROM articles

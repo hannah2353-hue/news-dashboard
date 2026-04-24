@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import type { Article } from "@/lib/types";
+import { kstDbDate } from "@/lib/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -94,7 +95,7 @@ export async function POST(req: NextRequest) {
   const score  = await scoreArticle(db, body.title, body.summary ?? "", body.body_text ?? "", body.source_name);
   const filter = await applyExclusionFilter(db, body.title, body.summary ?? "", body.body_text ?? "");
 
-  const now = new Date().toISOString().slice(0, 19).replace("T", " ");
+  const now = kstDbDate();
   const res = await db.execute({
     sql: `INSERT OR IGNORE INTO articles
             (collected_at, published_at, source_name, source_type,

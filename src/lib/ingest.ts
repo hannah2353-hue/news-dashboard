@@ -2,6 +2,7 @@ import type { Client } from "@libsql/client";
 import Parser from "rss-parser";
 import { scoreArticle } from "./scoring";
 import { applyExclusionFilter } from "./filter";
+import { kstDbDate } from "./datetime";
 
 const parser = new Parser({
   timeout: 10_000,
@@ -38,7 +39,7 @@ interface IngestOptions {
 }
 
 function toDbDate(d: Date): string {
-  return d.toISOString().slice(0, 19).replace("T", " ");
+  return kstDbDate(d);
 }
 
 function stripHtml(html: string): string {
