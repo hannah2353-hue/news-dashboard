@@ -75,9 +75,7 @@ export async function GET(req: NextRequest) {
       url:  String(r.url),
     }));
 
-    const results: DiagnoseSourceResult[] = [];
-
-    for (const src of sources) {
+    async function diagnoseOne(src: { name: string; url: string }): Promise<DiagnoseSourceResult> {
       const r: DiagnoseSourceResult = {
         source: src.name,
         url: src.url,
@@ -138,7 +136,16 @@ export async function GET(req: NextRequest) {
         r.error = err instanceof Error ? err.message : String(err);
       }
 
-      results.push(r);
+      return r;
+    }
+
+    // 동시 8개씩 묶어서 처리. 순차로 돌면 파트너가 많을 때 60초 함수 timeout에 걸린다.
+    const CONCURRENCY = 8;
+    const results: DiagnoseSourceResult[] = [];
+    for (let i = 0; i < sources.length; i += CONCURRENCY) {
+      const chunk = sources.slice(i, i + CONCURRENCY);
+      const chunkResults = await Promise.all(chunk.map(diagnoseOne));
+      results.push(...chunkResults);
     }
 
     return NextResponse.json({
