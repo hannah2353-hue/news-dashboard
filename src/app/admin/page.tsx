@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Trash2, Download, Send, KeyRound, Save, CheckCircle2, AlertCircle, Loader2, Stethoscope } from "lucide-react";
+import { Trash2, Download, Send, KeyRound, Save, CheckCircle2, AlertCircle, Loader2, Stethoscope, RefreshCw } from "lucide-react";
 
 const SECRET_STORAGE_KEY = "news-dashboard:cron-secret";
 
-type ActionKey = "clear" | "ingest" | "digest" | "diagnose";
+type ActionKey = "clear" | "ingest" | "digest" | "diagnose" | "syncGoogle";
 
 interface ActionState {
   loading: boolean;
@@ -19,10 +19,11 @@ export default function AdminPage() {
   const [secret,     setSecret]     = useState("");
   const [savedSecret, setSavedSecret] = useState<string | null>(null);
   const [states,     setStates]     = useState<Record<ActionKey, ActionState>>({
-    clear:    INITIAL,
-    ingest:   INITIAL,
-    digest:   INITIAL,
-    diagnose: INITIAL,
+    clear:      INITIAL,
+    ingest:     INITIAL,
+    digest:     INITIAL,
+    diagnose:   INITIAL,
+    syncGoogle: INITIAL,
   });
 
   // localStorage에서 이전에 저장한 secret 불러오기
@@ -97,6 +98,13 @@ export default function AdminPage() {
   function runDiagnose() {
     return runAction("diagnose", () =>
       fetch("/api/admin/diagnose?days=7&samples=3", { method: "GET", headers: authHeader() })
+    );
+  }
+
+  function syncGoogleSources(deactivateLegacy: boolean) {
+    const qs = deactivateLegacy ? "?deactivate_legacy=1" : "";
+    return runAction("syncGoogle", () =>
+      fetch(`/api/admin/sync-google-sources${qs}`, { method: "POST", headers: authHeader() })
     );
   }
 
@@ -183,6 +191,15 @@ export default function AdminPage() {
           buttonLabel="진단 실행"
           state={states.diagnose}
           onClick={runDiagnose}
+        />
+        <ActionCard
+          icon={<RefreshCw size={18} />}
+          tone="primary"
+          title="구글 뉴스 소스 동기화"
+          description="활성 파트너마다 partner_keywords를 OR로 묶어 구글 뉴스 검색 RSS URL을 자동 생성/갱신합니다. 동시에 기존 직접 등록된 언론사 RSS(news.google.com이 아닌 것)는 모두 비활성화합니다. 필요하면 sources 페이지에서 다시 켤 수 있어요. 한국경제/뉴시스 등 죽은 RSS를 한 번에 정리하고 구글 뉴스로 전환할 때 사용하세요."
+          buttonLabel="동기화 + 기존 RSS 비활성화"
+          state={states.syncGoogle}
+          onClick={() => syncGoogleSources(true)}
         />
       </div>
     </div>

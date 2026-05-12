@@ -69,6 +69,33 @@ function extractBodyText(item: Parser.Item): string {
 }
 
 /**
+ * 구글 뉴스 RSS의 item에서 원본 언론사명을 뽑아낸다.
+ * - <source url="...">언론사명</source> → rss-parser는 { _: "언론사명" } 또는 string으로 줌
+ * - 실패하면 title 끝의 " - 언론사명" 패턴에서 fallback 추출
+ * - 그래도 안 되면 null
+ */
+function extractGoogleNewsPublisher(item: Parser.Item): string | null {
+  const raw = (item as unknown as Record<string, unknown>).source;
+  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  if (raw && typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    const text = obj._ ?? obj["#text"] ?? obj.name;
+    if (typeof text === "string" && text.trim()) return text.trim();
+  }
+
+  const title = (item.title ?? "").trim();
+  const dashIdx = title.lastIndexOf(" - ");
+  if (dashIdx > 0 && dashIdx > title.length - 30) {
+    return title.slice(dashIdx + 3).trim() || null;
+  }
+  return null;
+}
+
+function isGoogleNewsUrl(url: string): boolean {
+  return url.includes("news.google.com/rss");
+}
+
+/**
  * 활성화된 모든 RSS source를 순회하며 신규 기사를 수집합니다.
  * - UNIQUE(url) 기반 중복 무시
  * - 파트너 키워드 매칭 안 된 기사는 기본 스킵 (옵션 변경 가능)
@@ -155,6 +182,16 @@ export async function ingestAllSources(
           continue;
         }
 
+        // 구글 뉴스 RSS의 경우 item.source에서 원 언론사를 뽑아 저장한다.
+        // 그래야 대시보드의 "언론사별 차트"가 구글뉴스 한 덩어리가 아니라
+        // 실제 언론사별로 잘 분리돼서 보인다.
+        const publisher = isGoogleNewsUrl(src.url)
+          ? extractGoogleNewsPublisher(item)
+          : null;
+        const effectiveSourceName = publisher ?? src.name;
+
+        // 점수 산정용으로는 sources 테이블에 등록된 이름(src.name) 그대로 사용한다.
+        // (개별 언론사가 sources에 없어도 점수가 0으로 흘러내리지 않게)
         const score  = await scoreArticle(db, title, summary, bodyText, src.name);
         const filter = await applyExclusionFilter(db, title, summary, bodyText);
 
@@ -171,7 +208,7 @@ export async function ingestAllSources(
                    alert_level, status, is_duplicate)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
           args: [
-            collected_at, published_at, src.name, "rss",
+            collected_at, published_at, effectiveSourceName, "rss",
             title, summary, bodyText, url,
             JSON.stringify(score.auto_partners),
             JSON.stringify(score.auto_partners),
