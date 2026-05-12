@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import KpiCard from "@/components/KpiCard";
+import IngestStatusCard from "@/components/IngestStatusCard";
 import {
   PartnerBarChart, TrendLineChart, SourceBarChart, ExclusionPieChart,
 } from "@/components/DashboardCharts";
@@ -49,6 +50,9 @@ export default function DashboardPage() {
         <KpiCard title="오늘 제외 기사"  value={stats.todayExcluded} sub="스포츠/CSR/마케팅" color="amber" />
         <KpiCard title="모니터링 제휴사" value={stats.activePartners} sub="활성 제휴사 수" color="green" />
       </div>
+
+      {/* 최근 수집 상태 — RSS 응답/저장/누락 단계별 진단 */}
+      <IngestStatusCard />
 
       {/* 일별 추이 */}
       <div className="card p-5">

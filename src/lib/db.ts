@@ -119,9 +119,22 @@ async function initSchema(db: Client) {
       changed_at  TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
     );
 
+    CREATE TABLE IF NOT EXISTS ingest_logs (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      started_at      TEXT    NOT NULL,
+      finished_at     TEXT    NOT NULL,
+      duration_ms     INTEGER NOT NULL DEFAULT 0,
+      total_fetched   INTEGER NOT NULL DEFAULT 0,
+      total_inserted  INTEGER NOT NULL DEFAULT 0,
+      source_count    INTEGER NOT NULL DEFAULT 0,
+      error_count     INTEGER NOT NULL DEFAULT 0,
+      sources_json    TEXT    NOT NULL DEFAULT '[]'
+    );
+
     CREATE INDEX IF NOT EXISTS idx_articles_published ON articles(published_at DESC);
     CREATE INDEX IF NOT EXISTS idx_articles_status    ON articles(status);
     CREATE INDEX IF NOT EXISTS idx_articles_alert     ON articles(alert_level);
+    CREATE INDEX IF NOT EXISTS idx_ingest_logs_started ON ingest_logs(started_at DESC);
   `);
 
   // Migrations for older databases missing AI columns

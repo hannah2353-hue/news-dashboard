@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Trash2, Download, Send, KeyRound, Save, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { Trash2, Download, Send, KeyRound, Save, CheckCircle2, AlertCircle, Loader2, Stethoscope } from "lucide-react";
 
 const SECRET_STORAGE_KEY = "news-dashboard:cron-secret";
 
-type ActionKey = "clear" | "ingest" | "digest";
+type ActionKey = "clear" | "ingest" | "digest" | "diagnose";
 
 interface ActionState {
   loading: boolean;
@@ -19,9 +19,10 @@ export default function AdminPage() {
   const [secret,     setSecret]     = useState("");
   const [savedSecret, setSavedSecret] = useState<string | null>(null);
   const [states,     setStates]     = useState<Record<ActionKey, ActionState>>({
-    clear:  INITIAL,
-    ingest: INITIAL,
-    digest: INITIAL,
+    clear:    INITIAL,
+    ingest:   INITIAL,
+    digest:   INITIAL,
+    diagnose: INITIAL,
   });
 
   // localStorage에서 이전에 저장한 secret 불러오기
@@ -90,6 +91,12 @@ export default function AdminPage() {
         headers: { ...authHeader(), "Content-Type": "application/json" },
         body: JSON.stringify({ digest: true }),
       })
+    );
+  }
+
+  function runDiagnose() {
+    return runAction("diagnose", () =>
+      fetch("/api/admin/diagnose?days=7&samples=3", { method: "GET", headers: authHeader() })
     );
   }
 
@@ -167,6 +174,15 @@ export default function AdminPage() {
           buttonLabel="테스트 전송"
           state={states.digest}
           onClick={testDigest}
+        />
+        <ActionCard
+          icon={<Stethoscope size={18} />}
+          tone="primary"
+          title="수집 진단 (dry-run)"
+          description="RSS를 실제로 받아오되 DB에는 저장하지 않습니다. 소스별로 'RSS 응답 N건 → 파트너 키워드 매칭 M건' 같은 단계별 통계와, 매칭/미매칭된 기사 제목 샘플을 보여줍니다. '수집이 너무 적다'가 진짜 뉴스가 없어서인지, 키워드/필터가 너무 빡빡해서인지 판별할 때 사용하세요."
+          buttonLabel="진단 실행"
+          state={states.diagnose}
+          onClick={runDiagnose}
         />
       </div>
     </div>

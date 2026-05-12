@@ -203,13 +203,36 @@ export async function ingestAllSources(
     results.push(result);
   }
 
-  return {
+  const summary: IngestSummary = {
     ok: true,
     total_inserted: results.reduce((s, r) => s + r.inserted, 0),
     total_fetched:  results.reduce((s, r) => s + r.fetched, 0),
     duration_ms:    Date.now() - startedAt,
     sources: results,
   };
+
+  try {
+    await db.execute({
+      sql: `INSERT INTO ingest_logs
+              (started_at, finished_at, duration_ms,
+               total_fetched, total_inserted, source_count, error_count, sources_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        toDbDate(new Date(startedAt)),
+        toDbDate(new Date()),
+        summary.duration_ms,
+        summary.total_fetched,
+        summary.total_inserted,
+        results.length,
+        results.filter((r) => r.error).length,
+        JSON.stringify(results),
+      ],
+    });
+  } catch (err) {
+    console.warn("[ingest] ingest_logs 저장 실패:", err instanceof Error ? err.message : err);
+  }
+
+  return summary;
 }
 
 /** seed 단계에서 들어간 예시 URL(`https://example.com/...`)을 가진 기사만 삭제 */
