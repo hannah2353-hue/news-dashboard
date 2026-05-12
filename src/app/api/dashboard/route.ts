@@ -13,9 +13,9 @@ export async function GET() {
   const db    = await getDb();
   const today = kstDateString();
 
-  const todayTotal    = await scalar(db, "SELECT COUNT(*) as n FROM articles WHERE DATE(published_at) = ? AND status != 'excluded'", [today]);
-  const todayAlert    = await scalar(db, "SELECT COUNT(*) as n FROM articles WHERE DATE(published_at) = ? AND alert_level = 'alert' AND status != 'excluded'", [today]);
-  const todayExcluded = await scalar(db, "SELECT COUNT(*) as n FROM articles WHERE DATE(published_at) = ? AND status = 'excluded'", [today]);
+  const todayTotal    = await scalar(db, "SELECT COUNT(*) as n FROM articles WHERE DATE(published_at) = ? AND status != 'excluded' AND is_duplicate = 0", [today]);
+  const todayAlert    = await scalar(db, "SELECT COUNT(*) as n FROM articles WHERE DATE(published_at) = ? AND alert_level = 'alert' AND status != 'excluded' AND is_duplicate = 0", [today]);
+  const todayExcluded = await scalar(db, "SELECT COUNT(*) as n FROM articles WHERE DATE(published_at) = ? AND status = 'excluded' AND is_duplicate = 0", [today]);
   const activePartners = await scalar(db, "SELECT COUNT(*) as n FROM partners WHERE is_active = 1");
 
   const weeklyRes = await db.execute(`
@@ -26,6 +26,7 @@ export async function GET() {
     FROM articles
     WHERE published_at >= date('now', '+9 hours', '-13 days')
       AND status != 'excluded'
+      AND is_duplicate = 0
     GROUP BY DATE(published_at)
     ORDER BY date ASC
   `);
@@ -35,7 +36,7 @@ export async function GET() {
     alert: Number(r.alert),
   }));
 
-  const articlesRes = await db.execute("SELECT final_partner, alert_level, status FROM articles");
+  const articlesRes = await db.execute("SELECT final_partner, alert_level, status FROM articles WHERE is_duplicate = 0");
   const partnerMap: Record<string, { total: number; alert: number }> = {};
   for (const r of articlesRes.rows) {
     const status = String(r.status);
@@ -57,7 +58,7 @@ export async function GET() {
   const bySourceRes = await db.execute(`
     SELECT source_name as source, COUNT(*) as count
     FROM articles
-    WHERE status != 'excluded'
+    WHERE status != 'excluded' AND is_duplicate = 0
     GROUP BY source_name
     ORDER BY count DESC
     LIMIT 10
@@ -72,7 +73,7 @@ export async function GET() {
       COALESCE(exclude_reason, 'none') as reason,
       COUNT(*) as count
     FROM articles
-    WHERE status = 'excluded'
+    WHERE status = 'excluded' AND is_duplicate = 0
     GROUP BY exclude_reason
   `);
   const byExcludeReason = reasonRes.rows.map((r) => ({

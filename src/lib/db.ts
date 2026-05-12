@@ -143,6 +143,10 @@ async function initSchema(db: Client) {
   if (!cols.includes("ai_summary"))     await db.execute("ALTER TABLE articles ADD COLUMN ai_summary TEXT");
   if (!cols.includes("ai_impact"))      await db.execute("ALTER TABLE articles ADD COLUMN ai_impact TEXT");
   if (!cols.includes("ai_analyzed_at")) await db.execute("ALTER TABLE articles ADD COLUMN ai_analyzed_at TEXT");
+  if (!cols.includes("cluster_key")) {
+    await db.execute("ALTER TABLE articles ADD COLUMN cluster_key TEXT NOT NULL DEFAULT ''");
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_articles_cluster ON articles(cluster_key)");
+  }
 }
 
 async function seedIfEmpty(db: Client) {

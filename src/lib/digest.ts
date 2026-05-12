@@ -8,7 +8,7 @@ export async function sendDailyDigest() {
 
   const res = await db.execute({
     sql: `SELECT * FROM articles
-          WHERE DATE(published_at) = ? AND status != 'excluded'
+          WHERE DATE(published_at) = ? AND status != 'excluded' AND is_duplicate = 0
           ORDER BY total_score DESC, published_at DESC`,
     args: [today],
   });

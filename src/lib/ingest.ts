@@ -3,6 +3,7 @@ import Parser from "rss-parser";
 import { scoreArticle } from "./scoring";
 import { applyExclusionFilter } from "./filter";
 import { kstDbDate } from "./datetime";
+import { buildClusterKey, runDedup } from "./dedup";
 
 const parser = new Parser({
   timeout: 10_000,
@@ -29,6 +30,11 @@ export interface IngestSummary {
   total_fetched: number;
   duration_ms: number;
   sources: IngestSourceResult[];
+  dedup?: {
+    backfilled: number;
+    winners:    number;
+    duplicates: number;
+  };
 }
 
 interface IngestOptions {
@@ -198,6 +204,8 @@ export async function ingestAllSources(
         const published_at = toDbDate(pubDate);
         const collected_at = toDbDate(new Date());
 
+        const clusterKey = buildClusterKey(title);
+
         const ins = await db.execute({
           sql: `INSERT OR IGNORE INTO articles
                   (collected_at, published_at, source_name, source_type,
@@ -205,8 +213,8 @@ export async function ingestAllSources(
                    auto_partners, final_partner, matched_keywords,
                    exclude_keywords, exclude_reason,
                    source_score, keyword_score, partner_score, spread_score, total_score,
-                   alert_level, status, is_duplicate)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+                   alert_level, status, is_duplicate, cluster_key)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
           args: [
             collected_at, published_at, effectiveSourceName, "rss",
             title, summary, bodyText, url,
@@ -218,6 +226,7 @@ export async function ingestAllSources(
             score.source_score, score.keyword_score, score.partner_score, 0, score.total_score,
             filter.is_excluded ? "hold" : score.alert_level,
             filter.is_excluded ? "excluded" : "new",
+            clusterKey,
           ],
         });
 
@@ -247,6 +256,15 @@ export async function ingestAllSources(
     duration_ms:    Date.now() - startedAt,
     sources: results,
   };
+
+  // 클러스터 기반 중복 처리: 같은 cluster_key 그룹에서 published_at이 가장 빠른 1건만
+  // is_duplicate=0으로 남기고 나머지는 1로 마킹. 동일 이슈를 여러 매체가 송고한 경우
+  // 대시보드/목록에는 1건만 노출된다.
+  try {
+    summary.dedup = await runDedup(db);
+  } catch (err) {
+    console.warn("[ingest] dedup 실패:", err instanceof Error ? err.message : err);
+  }
 
   try {
     await db.execute({

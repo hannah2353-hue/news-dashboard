@@ -58,6 +58,9 @@ export async function GET(req: NextRequest) {
   if (!p.get("includeExcluded") || p.get("includeExcluded") === "false") {
     conditions.push("status != 'excluded'");
   }
+  if (!p.get("includeDuplicates") || p.get("includeDuplicates") === "false") {
+    conditions.push("is_duplicate = 0");
+  }
   if (p.get("search")) {
     conditions.push("(title LIKE ? OR summary LIKE ?)");
     const q = `%${p.get("search")}%`;
@@ -91,9 +94,11 @@ export async function POST(req: NextRequest) {
 
   const { scoreArticle }         = await import("@/lib/scoring");
   const { applyExclusionFilter } = await import("@/lib/filter");
+  const { buildClusterKey }      = await import("@/lib/dedup");
 
   const score  = await scoreArticle(db, body.title, body.summary ?? "", body.body_text ?? "", body.source_name);
   const filter = await applyExclusionFilter(db, body.title, body.summary ?? "", body.body_text ?? "");
+  const clusterKey = buildClusterKey(body.title);
 
   const now = kstDbDate();
   const res = await db.execute({
@@ -103,8 +108,8 @@ export async function POST(req: NextRequest) {
              auto_partners, final_partner, matched_keywords,
              exclude_keywords, exclude_reason,
              source_score, keyword_score, partner_score, spread_score, total_score,
-             alert_level, status)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             alert_level, status, cluster_key)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       now, body.published_at ?? now, body.source_name, body.source_type ?? "rss",
       body.title, body.summary ?? "", body.body_text ?? "", body.url,
@@ -114,6 +119,7 @@ export async function POST(req: NextRequest) {
       score.source_score, score.keyword_score, score.partner_score, 0, score.total_score,
       filter.is_excluded ? "hold" : score.alert_level,
       filter.is_excluded ? "excluded" : "new",
+      clusterKey,
     ],
   });
 
