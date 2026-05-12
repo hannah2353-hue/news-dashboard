@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Trash2, Download, Send, KeyRound, Save, CheckCircle2, AlertCircle, Loader2, Stethoscope, RefreshCw } from "lucide-react";
+import { Download, Send, KeyRound, Save, CheckCircle2, AlertCircle, Loader2, Stethoscope, RefreshCw } from "lucide-react";
 
 const SECRET_STORAGE_KEY = "news-dashboard:cron-secret";
 
-type ActionKey = "clear" | "ingest" | "digest" | "diagnose" | "syncGoogle";
+type ActionKey = "ingest" | "digest" | "diagnose" | "syncGoogle";
 
 interface ActionState {
   loading: boolean;
@@ -19,7 +19,6 @@ export default function AdminPage() {
   const [secret,     setSecret]     = useState("");
   const [savedSecret, setSavedSecret] = useState<string | null>(null);
   const [states,     setStates]     = useState<Record<ActionKey, ActionState>>({
-    clear:      INITIAL,
     ingest:     INITIAL,
     digest:     INITIAL,
     diagnose:   INITIAL,
@@ -71,12 +70,6 @@ export default function AdminPage() {
       const msg = err instanceof Error ? err.message : String(err);
       setStates((s) => ({ ...s, [key]: { loading: false, result: null, error: msg } }));
     }
-  }
-
-  function clearSamples() {
-    return runAction("clear", () =>
-      fetch("/api/admin/clear-samples", { method: "POST", headers: authHeader() })
-    );
   }
 
   function runIngest() {
@@ -154,26 +147,54 @@ export default function AdminPage() {
         </div>
       </section>
 
-      {/* 작업 카드 3개 */}
-      <div className="grid gap-4">
+      {/* 소스 관리 — 어떤 RSS 주소에서 가져올지 결정 */}
+      <div>
+        <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 px-1">
+          1. 소스 관리
+        </h2>
         <ActionCard
-          icon={<Trash2 size={18} />}
-          tone="danger"
-          title="샘플 기사 삭제"
-          description="seed 단계에서 들어간 가짜 기사(URL이 https://example.com/aXXX인 것들)만 일괄 삭제합니다. 실제 수집된 기사는 건드리지 않아요."
-          buttonLabel="샘플 60건 삭제"
-          state={states.clear}
-          onClick={clearSamples}
-        />
-        <ActionCard
-          icon={<Download size={18} />}
+          icon={<RefreshCw size={18} />}
           tone="primary"
-          title="RSS 지금 수집"
-          description="활성 소스의 RSS를 즉시 파싱해서 파트너 키워드 매칭된 기사만 저장합니다. 크론(하루 1회)을 기다리지 않고 수동으로 돌릴 때."
-          buttonLabel="지금 실행"
-          state={states.ingest}
-          onClick={runIngest}
+          title="구글 뉴스 소스 갱신"
+          description="활성 파트너의 키워드를 OR로 묶어 구글 뉴스 검색 RSS 주소를 sources 테이블에 자동 등록/업데이트합니다. 동시에 직접 등록된 언론사 RSS는 비활성화돼서 다음 수집부터는 구글 뉴스에서만 받아옵니다. (수집은 안 합니다 — 소스 목록만 갱신)"
+          buttonLabel="소스 목록 갱신"
+          state={states.syncGoogle}
+          onClick={() => syncGoogleSources(true)}
         />
+      </div>
+
+      {/* 수집 실행 — 실제로 기사를 받아와 DB에 저장 */}
+      <div>
+        <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 px-1">
+          2. 수집 실행
+        </h2>
+        <div className="grid gap-4">
+          <ActionCard
+            icon={<Download size={18} />}
+            tone="primary"
+            title="지금 수집"
+            description="활성 소스의 RSS를 즉시 파싱해서 새 기사를 DB에 저장합니다. 매일 아침 7시 크론을 기다리지 않고 수동으로 한 번 돌릴 때 사용하세요."
+            buttonLabel="지금 수집 실행"
+            state={states.ingest}
+            onClick={runIngest}
+          />
+          <ActionCard
+            icon={<Stethoscope size={18} />}
+            tone="primary"
+            title="수집 진단 (DB 저장 없음)"
+            description="RSS를 받아오되 DB엔 아무것도 안 씁니다. 소스별로 'RSS 응답 N건 → 파트너 키워드 매칭 M건' 단계별 통계와 매칭/미매칭 제목 샘플을 보여줘서, 수집이 적은 이유가 진짜 뉴스가 없어서인지 필터/키워드 문제인지 판별할 때 씁니다."
+            buttonLabel="진단 실행"
+            state={states.diagnose}
+            onClick={runDiagnose}
+          />
+        </div>
+      </div>
+
+      {/* 알림 */}
+      <div>
+        <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 px-1">
+          3. 알림
+        </h2>
         <ActionCard
           icon={<Send size={18} />}
           tone="primary"
@@ -182,24 +203,6 @@ export default function AdminPage() {
           buttonLabel="테스트 전송"
           state={states.digest}
           onClick={testDigest}
-        />
-        <ActionCard
-          icon={<Stethoscope size={18} />}
-          tone="primary"
-          title="수집 진단 (dry-run)"
-          description="RSS를 실제로 받아오되 DB에는 저장하지 않습니다. 소스별로 'RSS 응답 N건 → 파트너 키워드 매칭 M건' 같은 단계별 통계와, 매칭/미매칭된 기사 제목 샘플을 보여줍니다. '수집이 너무 적다'가 진짜 뉴스가 없어서인지, 키워드/필터가 너무 빡빡해서인지 판별할 때 사용하세요."
-          buttonLabel="진단 실행"
-          state={states.diagnose}
-          onClick={runDiagnose}
-        />
-        <ActionCard
-          icon={<RefreshCw size={18} />}
-          tone="primary"
-          title="구글 뉴스 소스 동기화"
-          description="활성 파트너마다 partner_keywords를 OR로 묶어 구글 뉴스 검색 RSS URL을 자동 생성/갱신합니다. 동시에 기존 직접 등록된 언론사 RSS(news.google.com이 아닌 것)는 모두 비활성화합니다. 필요하면 sources 페이지에서 다시 켤 수 있어요. 한국경제/뉴시스 등 죽은 RSS를 한 번에 정리하고 구글 뉴스로 전환할 때 사용하세요."
-          buttonLabel="동기화 + 기존 RSS 비활성화"
-          state={states.syncGoogle}
-          onClick={() => syncGoogleSources(true)}
         />
       </div>
     </div>
