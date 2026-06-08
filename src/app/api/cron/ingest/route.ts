@@ -16,10 +16,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // vercel.json의 cron path가 ?group=a/?group=b로 두 갈래로 들어온다. 수동 호출
+  // (admin "지금 수집")은 파라미터 없이 들어오므로 "all"로 떨어진다.
+  const groupParam = new URL(req.url).searchParams.get("group");
+  const sourceGroup: "a" | "b" | "all" =
+    groupParam === "a" ? "a" : groupParam === "b" ? "b" : "all";
+
   try {
     const db = await getDb();
-    const summary = await ingestAllSources(db);
-    return NextResponse.json(summary);
+    const summary = await ingestAllSources(db, { sourceGroup });
+    return NextResponse.json({ group: sourceGroup, ...summary });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[cron/ingest] 실패:", message);

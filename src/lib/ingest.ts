@@ -42,6 +42,17 @@ interface IngestOptions {
   maxAgeDays?: number;
   /** true면 파트너 키워드 매칭 없는 기사는 저장 안 함 (기본 true) */
   onlyPartnerMatched?: boolean;
+  /**
+   * 소스 분할 그룹. cron을 두 개로 나눠 60초 timeout을 회피하기 위함.
+   * "a" = source id 짝수, "b" = 홀수, "all" = 전체.
+   * 새 소스가 추가돼도 자동으로 양쪽에 분배된다.
+   */
+  sourceGroup?: "a" | "b" | "all";
+  /**
+   * true면 소스 처리 순서를 매번 셔플. 60초 timeout으로 함수가 잘려도
+   * 매일 다른 소스가 우선 처리돼서 특정 소스만 영구 누락되는 일을 막는다.
+   */
+  shuffle?: boolean;
 }
 
 function toDbDate(d: Date): string {
@@ -114,6 +125,8 @@ export async function ingestAllSources(
   const startedAt           = Date.now();
   const maxAgeDays          = opts.maxAgeDays ?? 7;
   const onlyPartnerMatched  = opts.onlyPartnerMatched ?? true;
+  const sourceGroup         = opts.sourceGroup ?? "all";
+  const shuffle             = opts.shuffle ?? true;
   const cutoffMs            = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
 
   // 파트너 키워드 캐시 — 각 기사마다 DB 조회하지 않도록
@@ -133,16 +146,34 @@ export async function ingestAllSources(
   };
 
   const srcRes = await db.execute(
-    `SELECT source_name, url, source_type
+    `SELECT id, source_name, url, source_type
      FROM sources
      WHERE is_active = 1 AND source_type = 'rss' AND url IS NOT NULL AND url != ''`
   );
-  const sources = srcRes.rows.map((r) => ({
+  let sources = srcRes.rows.map((r) => ({
+    id:   Number(r.id),
     name: String(r.source_name),
     url:  String(r.url),
   }));
 
-  async function processSource(src: { name: string; url: string }): Promise<IngestSourceResult> {
+  // 소스 분할: cron 두 개가 같은 DB의 소스 절반씩 나눠 처리. id 짝/홀로 갈라
+  // 새 소스가 추가돼도 양쪽에 자동 분배된다.
+  if (sourceGroup === "a") {
+    sources = sources.filter((s) => s.id % 2 === 0);
+  } else if (sourceGroup === "b") {
+    sources = sources.filter((s) => s.id % 2 === 1);
+  }
+
+  // 셔플: 매번 다른 순서로 처리. 60초 timeout으로 함수가 잘려도 매일 다른
+  // 소스가 우선 처리돼 누락이 분산된다. Fisher-Yates.
+  if (shuffle) {
+    for (let i = sources.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [sources[i], sources[j]] = [sources[j], sources[i]];
+    }
+  }
+
+  async function processSource(src: { id: number; name: string; url: string }): Promise<IngestSourceResult> {
     const result: IngestSourceResult = {
       source: src.name,
       url: src.url,
@@ -247,9 +278,9 @@ export async function ingestAllSources(
     return result;
   }
 
-  // 동시 5개씩 묶어서 처리. 파트너 수가 많아져 소스가 늘면 순차로는 60초 timeout에 걸린다.
-  // INSERT가 섞여 있으므로 동시성은 진단 API(8)보다 보수적으로 5로 둔다.
-  const CONCURRENCY = 5;
+  // 동시 처리 개수. cron이 2개로 분할되면서 각 cron이 받는 소스가 절반으로 줄었고,
+  // 60초 안에 처리하려면 동시성을 더 올려야 한다. 진단 API와 동일한 10으로 둔다.
+  const CONCURRENCY = 10;
   const results: IngestSourceResult[] = [];
   for (let i = 0; i < sources.length; i += CONCURRENCY) {
     const chunk = sources.slice(i, i + CONCURRENCY);
