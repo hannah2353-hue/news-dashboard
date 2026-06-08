@@ -1,7 +1,7 @@
 import type { Client } from "@libsql/client";
 import Parser from "rss-parser";
-import { scoreArticle } from "./scoring";
-import { applyExclusionFilter } from "./filter";
+import { scoreArticle, loadScoringCache } from "./scoring";
+import { applyExclusionFilter, loadFilterCache } from "./filter";
 import { kstDbDate } from "./datetime";
 import { buildClusterKey, runDedup } from "./dedup";
 
@@ -129,20 +129,18 @@ export async function ingestAllSources(
   const shuffle             = opts.shuffle ?? true;
   const cutoffMs            = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
 
-  // 파트너 키워드 캐시 — 각 기사마다 DB 조회하지 않도록
-  const pkRes = await db.execute(
-    `SELECT pk.keyword
-     FROM partner_keywords pk
-     JOIN partners p ON p.id = pk.partner_id
-     WHERE pk.is_active = 1 AND p.is_active = 1`
-  );
-  const partnerKeywordsLower = pkRes.rows
-    .map((r) => String(r.keyword ?? "").toLowerCase())
-    .filter(Boolean);
+  // scoreArticle/applyExclusionFilter가 article마다 4번 치던 SELECT를 한 번에
+  // 로드해둔 캐시로 대체. 26 sources × 30 articles × 4 query = ~3000번 → 4번.
+  // 이게 60초 Vercel maxDuration의 실질적 주범이었다.
+  const [scoringCache, filterCache] = await Promise.all([
+    loadScoringCache(db),
+    loadFilterCache(db),
+  ]);
 
+  // ingest 자체의 "이 article에 파트너 키워드가 있는가?" 체크도 같은 캐시 재사용.
   const hasAnyPartner = (text: string): boolean => {
     const lower = text.toLowerCase();
-    return partnerKeywordsLower.some((kw) => lower.includes(kw));
+    return scoringCache.partnerKeywords.some((pk) => lower.includes(pk.keywordLower));
   };
 
   const srcRes = await db.execute(
@@ -227,8 +225,8 @@ export async function ingestAllSources(
 
         // 점수 산정용으로는 sources 테이블에 등록된 이름(src.name) 그대로 사용한다.
         // (개별 언론사가 sources에 없어도 점수가 0으로 흘러내리지 않게)
-        const score  = await scoreArticle(db, title, summary, bodyText, src.name);
-        const filter = await applyExclusionFilter(db, title, summary, bodyText);
+        const score  = await scoreArticle(db, title, summary, bodyText, src.name, scoringCache);
+        const filter = await applyExclusionFilter(db, title, summary, bodyText, filterCache);
 
         const published_at = toDbDate(pubDate);
         const collected_at = toDbDate(new Date());

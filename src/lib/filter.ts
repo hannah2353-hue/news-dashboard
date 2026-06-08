@@ -7,30 +7,48 @@ export interface FilterResult {
   exclude_keywords: string[];
 }
 
+/**
+ * 매 기사마다 같은 SELECT를 치지 않도록 사전 로드한 캐시. ingest 시작 시 한 번
+ * 만들어 article 루프에 전달한다.
+ */
+export interface FilterCache {
+  exclusionKws: { keywordLower: string; keyword: string; reason: Exclude<ExcludeReason, null> }[];
+  overrideKws:  { keywordLower: string }[];
+}
+
+export async function loadFilterCache(db: Client): Promise<FilterCache> {
+  const res = await db.execute(
+    "SELECT keyword, reason, is_override FROM exclusion_keywords WHERE is_active = 1"
+  );
+  const all = res.rows.map((r) => ({
+    keyword:      String(r.keyword),
+    keywordLower: String(r.keyword).toLowerCase(),
+    reason:       String(r.reason) as Exclude<ExcludeReason, null>,
+    is_override:  Number(r.is_override),
+  }));
+  return {
+    exclusionKws: all
+      .filter((k) => k.is_override === 0)
+      .map(({ keywordLower, keyword, reason }) => ({ keywordLower, keyword, reason })),
+    overrideKws:  all
+      .filter((k) => k.is_override === 1)
+      .map(({ keywordLower }) => ({ keywordLower })),
+  };
+}
+
 export async function applyExclusionFilter(
   db: Client,
   title: string,
   summary: string,
   body: string,
+  cache?: FilterCache,
 ): Promise<FilterResult> {
+  const c    = cache ?? (await loadFilterCache(db));
   const text = `${title} ${summary} ${body}`.toLowerCase();
 
-  const res = await db.execute(
-    "SELECT keyword, reason, is_override FROM exclusion_keywords WHERE is_active = 1"
-  );
-
-  const all = res.rows.map((r) => ({
-    keyword:     String(r.keyword),
-    reason:      String(r.reason) as Exclude<ExcludeReason, null>,
-    is_override: Number(r.is_override),
-  }));
-
-  const exclusionKws = all.filter((k) => k.is_override === 0);
-  const overrideKws  = all.filter((k) => k.is_override === 1);
-
   const hitExclusion: { keyword: string; reason: Exclude<ExcludeReason, null> }[] = [];
-  for (const { keyword, reason } of exclusionKws) {
-    if (text.includes(keyword.toLowerCase())) {
+  for (const { keywordLower, keyword, reason } of c.exclusionKws) {
+    if (text.includes(keywordLower)) {
       hitExclusion.push({ keyword, reason });
     }
   }
@@ -39,7 +57,7 @@ export async function applyExclusionFilter(
     return { is_excluded: false, exclude_reason: null, exclude_keywords: [] };
   }
 
-  const hasOverride = overrideKws.some((k) => text.includes(k.keyword.toLowerCase()));
+  const hasOverride = c.overrideKws.some((k) => text.includes(k.keywordLower));
   if (hasOverride) {
     return { is_excluded: false, exclude_reason: null, exclude_keywords: [] };
   }

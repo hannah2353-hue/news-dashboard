@@ -72,10 +72,43 @@ export default function AdminPage() {
     }
   }
 
-  function runIngest() {
-    return runAction("ingest", () =>
-      fetch("/api/cron/ingest", { method: "GET", headers: authHeader() })
-    );
+  // 자동 cron은 ?group=a/b로 분할돼 각 호출이 60초 안에 들어오지만, 한 번에
+  // 전체 소스를 돌리면 60초를 넘겨 504가 떨어진다. 그래서 수동 버튼도 a → b
+  // 순차로 호출하고 결과를 합쳐서 보여준다.
+  async function runIngest() {
+    setStates((s) => ({ ...s, ingest: { loading: true, result: null, error: null } }));
+
+    async function callGroup(group: "a" | "b") {
+      const res  = await fetch(`/api/cron/ingest?group=${group}`, {
+        method:  "GET",
+        headers: authHeader(),
+      });
+      const text = await res.text();
+      let body: unknown = text;
+      try { body = JSON.parse(text); } catch { /* leave as text */ }
+      return { ok: res.ok, status: res.status, body };
+    }
+
+    try {
+      const a = await callGroup("a");
+      const b = await callGroup("b");
+
+      const errors: string[] = [];
+      if (!a.ok) errors.push(`Group A: HTTP ${a.status}`);
+      if (!b.ok) errors.push(`Group B: HTTP ${b.status}`);
+
+      setStates((s) => ({
+        ...s,
+        ingest: {
+          loading: false,
+          result:  { groupA: a.body, groupB: b.body },
+          error:   errors.length ? errors.join(" / ") : null,
+        },
+      }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStates((s) => ({ ...s, ingest: { loading: false, result: null, error: msg } }));
+    }
   }
 
   function testDigest() {
