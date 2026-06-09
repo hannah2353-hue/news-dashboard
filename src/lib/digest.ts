@@ -6,9 +6,12 @@ export async function sendDailyDigest() {
   const db    = await getDb();
   const today = kstDateString();
 
+  // "오늘 수집" 알림은 collected_at 기준. 새벽 KST 8~9시엔 published_at=오늘인
+  // 기사가 거의 없어서 발행일 기준이면 매번 0건이 떴다. cron이 어제 발행 기사를
+  // 오늘 새로 가져온 경우도 "오늘 수집"으로 잡아야 사용자 의도와 맞다.
   const res = await db.execute({
     sql: `SELECT * FROM articles
-          WHERE DATE(published_at) = ? AND status != 'excluded' AND is_duplicate = 0
+          WHERE DATE(collected_at) = ? AND status != 'excluded' AND is_duplicate = 0
           ORDER BY total_score DESC, published_at DESC`,
     args: [today],
   });

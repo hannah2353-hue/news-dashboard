@@ -13,9 +13,11 @@ export async function GET() {
   const db    = await getDb();
   const today = kstDateString();
 
-  const todayTotal    = await scalar(db, "SELECT COUNT(*) as n FROM articles WHERE DATE(published_at) = ? AND status != 'excluded' AND is_duplicate = 0", [today]);
-  const todayAlert    = await scalar(db, "SELECT COUNT(*) as n FROM articles WHERE DATE(published_at) = ? AND alert_level = 'alert' AND status != 'excluded' AND is_duplicate = 0", [today]);
-  const todayExcluded = await scalar(db, "SELECT COUNT(*) as n FROM articles WHERE DATE(published_at) = ? AND status = 'excluded' AND is_duplicate = 0", [today]);
+  // "오늘 수집" 카드는 collected_at 기준. weeklyTrend는 published_at 기준 그대로
+  // 둬서 "어느 날짜의 기사를 보고 있는지" 추이를 본다.
+  const todayTotal    = await scalar(db, "SELECT COUNT(*) as n FROM articles WHERE DATE(collected_at) = ? AND status != 'excluded' AND is_duplicate = 0", [today]);
+  const todayAlert    = await scalar(db, "SELECT COUNT(*) as n FROM articles WHERE DATE(collected_at) = ? AND alert_level = 'alert' AND status != 'excluded' AND is_duplicate = 0", [today]);
+  const todayExcluded = await scalar(db, "SELECT COUNT(*) as n FROM articles WHERE DATE(collected_at) = ? AND status = 'excluded' AND is_duplicate = 0", [today]);
   const activePartners = await scalar(db, "SELECT COUNT(*) as n FROM partners WHERE is_active = 1");
 
   const weeklyRes = await db.execute(`
