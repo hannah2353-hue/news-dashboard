@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { analyzeArticle } from "@/lib/analyzer";
 
-export const dynamic = "force-dynamic";
+export const dynamic     = "force-dynamic";
+// Gemini 호출이 평균 8~10초, cold start까지 더해지면 Vercel Hobby 기본 10초
+// 안에 못 끝나서 504가 떨어졌다. ingest route와 동일하게 60초로 늘려둔다.
+export const maxDuration = 60;
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const db  = await getDb();
