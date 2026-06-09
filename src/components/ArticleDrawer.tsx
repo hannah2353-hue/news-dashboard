@@ -239,7 +239,7 @@ export default function ArticleDrawer({ article, onClose, onSaved }: Props) {
               </div>
             ) : (
               <p className="text-xs text-slate-400">
-                분석하기 버튼을 누르면 Claude AI가 저축은행 대출 비교서비스 기획자 관점에서 기사를 분석합니다.
+                분석하기 버튼을 누르면 Gemini AI가 저축은행 대출 비교서비스 기획자 관점에서 기사를 분석합니다.
               </p>
             )}
           </div>
