@@ -8,7 +8,11 @@ import type { Client } from "@libsql/client";
  * - 띄어쓰기, 따옴표, 마침표는 매체마다 미세하게 다르므로 한글/영문/숫자만 남긴다.
  * - 너무 짧으면 충돌이 많아지니 길이 12 미만은 빈 키로 반환 (= 클러스터링에서 제외).
  */
-export function buildClusterKey(title: string): string {
+/**
+ * 제목에서 매체명 꼬리표(" - 매체명")와 머리표([속보] 등)를 떼어낸 '본문 제목'을 돌려준다.
+ * 공백/대소문자는 유지 — 토큰 분리용으로도 쓰기 위함.
+ */
+export function stripTitleDecorations(title: string): string {
   if (!title) return "";
   let t = title.trim();
 
@@ -22,12 +26,108 @@ export function buildClusterKey(title: string): string {
   // 흔한 머리표 [속보], [단독], <단독> 등 제거
   t = t.replace(/^(\[[^\]]{1,8}\]|<[^>]{1,8}>)\s*/gu, "");
 
+  return t.trim();
+}
+
+export function buildClusterKey(title: string): string {
+  const t = stripTitleDecorations(title);
+
   // 한글/영문/숫자만 남김
   const compact = t.toLowerCase().replace(/[^\p{Letter}\p{Number}]+/gu, "");
 
   if (compact.length < 12) return "";
   // 매우 긴 제목은 앞쪽이 충분히 변별력 있으니 24자만 사용
   return compact.slice(0, 24);
+}
+
+/** 정규화 제목(매체명/머리표 제거 + 한글·영문·숫자만, 공백 제거) */
+function compactTitle(title: string): string {
+  return stripTitleDecorations(title)
+    .toLowerCase()
+    .replace(/[^\p{Letter}\p{Number}]+/gu, "");
+}
+
+/**
+ * 글자 단위 n-gram 집합. 한국어는 띄어쓰기·조사가 매체마다 달라 단어 토큰이
+ * 쉽게 쪼개지므로("중금리대출" vs "중금리 대출"), 공백을 없앤 문자열의 글자
+ * 3-gram으로 비교하면 표현 차이에 훨씬 강건하다.
+ */
+function charNgrams(s: string, n = 3): Set<string> {
+  const out = new Set<string>();
+  if (s.length < n) {
+    if (s.length > 0) out.add(s);
+    return out;
+  }
+  for (let i = 0; i + n <= s.length; i++) out.add(s.slice(i, i + n));
+  return out;
+}
+
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let inter = 0;
+  for (const x of a) if (b.has(x)) inter++;
+  return inter / (a.size + b.size - inter);
+}
+
+/**
+ * 발송 직전 in-memory 2차 중복 제거.
+ *
+ * DB의 cluster_key(앞 24자 완전일치) 기반 dedup은 같은 사건을 매체마다 다르게 쓴
+ * 제목(길이/표현/띄어쓰기 차이)을 못 잡는다. 여기서 제목 유사도로 한 번 더 묶어
+ * 클러스터마다 점수가 가장 높은 1건만 대표로 남긴다.
+ *
+ * 묶는 기준 (둘 중 하나라도 만족하면 같은 기사로 간주):
+ *  1) 정규화 제목(공백 제거)이 완전히 동일 — 사실상 같은 송고
+ *  2) 글자 3-gram 자카드 유사도 ≥ threshold, 단 양쪽 정규화 길이 10자 이상일 때만
+ *     (짧은 제목의 오병합 방지. '확대 vs 축소' 같은 반대 내용은 유사도 ~0.17로 안 묶임)
+ *
+ * union-find의 전이성 덕분에 A~B, B~C면 A·B·C가 한 클러스터로 묶인다.
+ * 대표는 total_score가 가장 높은 건 — 발송 메시지에 노출할 가치가 가장 큰 기사.
+ */
+export function dedupeForDigest<T extends { title: string; total_score: number }>(
+  articles: T[],
+  opts: { threshold?: number } = {},
+): T[] {
+  const threshold = opts.threshold ?? 0.4;
+  const n = articles.length;
+  if (n <= 1) return [...articles];
+
+  const compacts = articles.map((a) => compactTitle(a.title));
+  const grams = compacts.map((c) => charNgrams(c, 3));
+
+  // union-find로 유사 기사들을 한 덩어리로 묶는다.
+  const parent = Array.from({ length: n }, (_, i) => i);
+  const find = (x: number): number => {
+    let r = x;
+    while (parent[r] !== r) r = parent[r];
+    while (parent[x] !== r) { const nx = parent[x]; parent[x] = r; x = nx; }
+    return r;
+  };
+  const union = (a: number, b: number) => {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent[ra] = rb;
+  };
+
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const exact = compacts[i].length >= 8 && compacts[i] === compacts[j];
+      const fuzzy =
+        compacts[i].length >= 10 &&
+        compacts[j].length >= 10 &&
+        jaccard(grams[i], grams[j]) >= threshold;
+      if (exact || fuzzy) union(i, j);
+    }
+  }
+
+  // 클러스터별 대표(최고 점수) 1건만 추린다.
+  const bestByRoot = new Map<number, T>();
+  for (let i = 0; i < n; i++) {
+    const r = find(i);
+    const cur = bestByRoot.get(r);
+    if (!cur || articles[i].total_score > cur.total_score) bestByRoot.set(r, articles[i]);
+  }
+
+  return [...bestByRoot.values()].sort((a, b) => b.total_score - a.total_score);
 }
 
 /**

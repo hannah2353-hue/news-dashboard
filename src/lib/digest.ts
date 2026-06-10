@@ -1,6 +1,7 @@
 import { getDb } from "./db";
 import { sendTelegramMessage } from "./telegram";
 import { kstDateString } from "./datetime";
+import { dedupeForDigest } from "./dedup";
 
 export async function sendDailyDigest() {
   const db    = await getDb();
@@ -16,7 +17,7 @@ export async function sendDailyDigest() {
     args: [today],
   });
 
-  const articles = res.rows.map((r) => ({
+  const rawArticles = res.rows.map((r) => ({
     title:         String(r.title ?? ""),
     source_name:   String(r.source_name ?? ""),
     url:           String(r.url ?? ""),
@@ -24,6 +25,11 @@ export async function sendDailyDigest() {
     total_score:   Number(r.total_score ?? 0),
     alert_level:   String(r.alert_level ?? ""),
   }));
+
+  // DB cluster_key(앞 24자 완전일치) dedup이 못 잡은, 같은 사건의 다른 제목 기사들을
+  // 발송 직전에 제목 유사도로 한 번 더 묶어 대표 1건씩만 남긴다. "오늘 수집 N건"
+  // 숫자와 TOP 5 모두 이 deduped 집합을 기준으로 산정된다.
+  const articles = dedupeForDigest(rawArticles);
 
   const total   = articles.length;
   const alerts  = articles.filter((a) => a.alert_level === "alert").length;
