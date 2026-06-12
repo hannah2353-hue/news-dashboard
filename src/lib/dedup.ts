@@ -69,31 +69,61 @@ function jaccard(a: Set<string>, b: Set<string>): number {
   return inter / (a.size + b.size - inter);
 }
 
+/** 제목을 단어 토큰(2글자 이상) 집합으로. 어순이 바뀐 같은 기사를 잡기 위함. */
+function titleTokens(title: string): Set<string> {
+  return new Set(
+    stripTitleDecorations(title)
+      .toLowerCase()
+      .replace(/[^\p{Letter}\p{Number}\s]+/gu, " ")
+      .split(/\s+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 2),
+  );
+}
+
+/** final_partner(JSON 문자열)를 정규화한 제휴사 키. 같은 제휴사 집합이면 같은 키. */
+function partnerKey(finalPartner: string | undefined): string {
+  let arr: unknown;
+  try { arr = JSON.parse(finalPartner ?? "[]"); } catch { arr = []; }
+  if (!Array.isArray(arr)) return "";
+  return [...new Set(arr.map((x) => String(x).trim().toLowerCase()).filter(Boolean))]
+    .sort()
+    .join("|");
+}
+
 /**
  * 발송 직전 in-memory 2차 중복 제거.
  *
  * DB의 cluster_key(앞 24자 완전일치) 기반 dedup은 같은 사건을 매체마다 다르게 쓴
- * 제목(길이/표현/띄어쓰기 차이)을 못 잡는다. 여기서 제목 유사도로 한 번 더 묶어
+ * 제목(길이/표현/띄어쓰기 차이)을 못 잡는다. 여기서 더 공격적으로 한 번 더 묶어
  * 클러스터마다 점수가 가장 높은 1건만 대표로 남긴다.
  *
- * 묶는 기준 (둘 중 하나라도 만족하면 같은 기사로 간주):
- *  1) 정규화 제목(공백 제거)이 완전히 동일 — 사실상 같은 송고
- *  2) 글자 3-gram 자카드 유사도 ≥ threshold, 단 양쪽 정규화 길이 10자 이상일 때만
- *     (짧은 제목의 오병합 방지. '확대 vs 축소' 같은 반대 내용은 유사도 ~0.17로 안 묶임)
+ * 핵심: 순수 글자 유사도만 낮추면 'OK저축은행 ○○'과 '웰컴저축은행 ○○'처럼 회사만
+ * 다른 기사가 잘못 합쳐진다("저축은행 ○○" 부분이 겹쳐서 유사도가 높음). 그래서
+ * **같은 제휴사(final_partner) 집합일 때만** 유사도로 묶고, 회사가 다르면 절대 안 묶는다.
+ * 제휴사 가드가 보호해주므로 같은 회사 안에서는 기준을 과감하게 낮출 수 있다.
+ *
+ * 묶는 기준 (하나라도 만족하면 같은 기사로 간주):
+ *  1) 정규화 제목(공백 제거)이 완전히 동일 — 사실상 같은 송고 (제휴사 무관)
+ *  2) 같은 제휴사 집합 + (글자 3-gram 유사도 ≥ gramThreshold  OR  단어 토큰 유사도 ≥ tokenThreshold)
+ *     - 3-gram: 표현/띄어쓰기 차이에 강건  /  토큰: 어순이 바뀐 같은 기사를 잡음
  *
  * union-find의 전이성 덕분에 A~B, B~C면 A·B·C가 한 클러스터로 묶인다.
  * 대표는 total_score가 가장 높은 건 — 발송 메시지에 노출할 가치가 가장 큰 기사.
  */
-export function dedupeForDigest<T extends { title: string; total_score: number }>(
+export function dedupeForDigest<T extends { title: string; total_score: number; final_partner?: string }>(
   articles: T[],
-  opts: { threshold?: number } = {},
+  opts: { gramThreshold?: number; tokenThreshold?: number } = {},
 ): T[] {
-  const threshold = opts.threshold ?? 0.4;
+  const gramThreshold  = opts.gramThreshold  ?? 0.22;
+  const tokenThreshold = opts.tokenThreshold ?? 0.28;
   const n = articles.length;
   if (n <= 1) return [...articles];
 
   const compacts = articles.map((a) => compactTitle(a.title));
-  const grams = compacts.map((c) => charNgrams(c, 3));
+  const grams    = compacts.map((c) => charNgrams(c, 3));
+  const tokens   = articles.map((a) => titleTokens(a.title));
+  const pkeys    = articles.map((a) => partnerKey(a.final_partner));
 
   // union-find로 유사 기사들을 한 덩어리로 묶는다.
   const parent = Array.from({ length: n }, (_, i) => i);
@@ -111,10 +141,15 @@ export function dedupeForDigest<T extends { title: string; total_score: number }
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
       const exact = compacts[i].length >= 8 && compacts[i] === compacts[j];
+
+      const samePartner = pkeys[i] === pkeys[j];
       const fuzzy =
-        compacts[i].length >= 10 &&
-        compacts[j].length >= 10 &&
-        jaccard(grams[i], grams[j]) >= threshold;
+        samePartner &&
+        compacts[i].length >= 8 &&
+        compacts[j].length >= 8 &&
+        (jaccard(grams[i], grams[j]) >= gramThreshold ||
+          jaccard(tokens[i], tokens[j]) >= tokenThreshold);
+
       if (exact || fuzzy) union(i, j);
     }
   }
