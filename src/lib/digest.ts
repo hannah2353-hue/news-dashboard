@@ -24,6 +24,7 @@ export async function sendDailyDigest() {
     final_partner: String(r.final_partner ?? "[]"),
     total_score:   Number(r.total_score ?? 0),
     alert_level:   String(r.alert_level ?? ""),
+    published_at:  String(r.published_at ?? ""),
   }));
 
   // DB cluster_key(앞 24자 완전일치) dedup이 못 잡은, 같은 사건의 다른 제목 기사들을
@@ -34,6 +35,10 @@ export async function sendDailyDigest() {
   const total   = articles.length;
   const alerts  = articles.filter((a) => a.alert_level === "alert").length;
   const reports = articles.filter((a) => a.alert_level === "report").length;
+  // "오늘 수집"(collected_at=오늘)에는 며칠 전 발행됐지만 오늘 처음 발견된 기사가 섞인다.
+  // 그중 실제로 오늘 발행된 건수를 따로 보여줘 두 숫자의 차이를 헷갈리지 않게 한다.
+  // published_at은 "YYYY-MM-DD HH:MM:SS"(KST), today는 "YYYY-MM-DD"라 앞 10자로 비교.
+  const publishedToday = articles.filter((a) => a.published_at.slice(0, 10) === today).length;
 
   const dashboardUrl = process.env.DASHBOARD_URL;
 
@@ -49,7 +54,8 @@ export async function sendDailyDigest() {
   const lines = [
     `📰 <b>[일일 뉴스 모니터링 요약] ${today}</b>`,
     ``,
-    `📊 오늘 수집: <b>${total}건</b> (긴급 ${alerts}건 / 보고 ${reports}건)`,
+    `📊 오늘 수집: <b>${total}건</b> (그중 오늘 발행 ${publishedToday}건)`,
+    `   🚨 긴급 ${alerts}건 · 📋 보고 ${reports}건`,
     ``,
     `<b>🔝 주요 기사 TOP ${topArticles.length}</b>`,
   ];
